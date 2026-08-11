@@ -213,7 +213,7 @@ def ksh_earnings():
                 f"{url}; hiba: {error}"
             )
 
-        if content is None:
+    if content is None:
         previous_earnings = PREVIOUS_DATA.get(
             "earnings"
         )
@@ -395,7 +395,7 @@ def ksh_earnings():
             }
         )
 
-               if not result["gross"]:
+    if not result["gross"]:
         previous_earnings = PREVIOUS_DATA.get(
             "earnings"
         )
