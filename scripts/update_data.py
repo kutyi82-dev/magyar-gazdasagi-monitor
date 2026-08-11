@@ -107,28 +107,88 @@ def brent_oil():
 
 
 def ecb_fx():
-    url='https://data-api.ecb.europa.eu/service/data/EXR/D.HUF.EUR.SP00.A'
-    text=S.get(url,params={'format':'csvdata','startPeriod':'2000-01-01'},headers={'Accept':'text/csv'},timeout=90).text
-    rows=[]
-    for r in csv.DictReader(io.StringIO(text)):
-        try: rows.append({'date':r['TIME_PERIOD'],'value':float(r['OBS_VALUE'])})
-        except: pass
-    return sorted(rows,key=lambda x:x['date'])
+    url = "https://data-api.ecb.europa.eu/service/data/EXR/D.HUF+USD+GBP.EUR.SP00.A"
+    response = S.get(
+        url,
+        params={"format": "csvdata", "startPeriod": "2000-01-01"},
+        headers={"Accept": "text/csv"},
+        timeout=90,
+    )
+    response.raise_for_status()
+
+    raw = []
+    for row in csv.DictReader(io.StringIO(response.text)):
+        try:
+            raw.append({
+                "date": row["TIME_PERIOD"],
+                "currency": row["CURRENCY"],
+                "value": float(row["OBS_VALUE"]),
+            })
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    by_date = {}
+    for row in raw:
+        by_date.setdefault(row["date"], {})[row["currency"]] = row["value"]
+
+    eurhuf, usdhuf, gbphuf = [], [], []
+    for date, rates in sorted(by_date.items()):
+        huf = rates.get("HUF")
+        usd = rates.get("USD")
+        gbp = rates.get("GBP")
+        if huf is not None:
+            eurhuf.append({"date": date, "value": huf})
+        if huf is not None and usd not in (None, 0):
+            usdhuf.append({"date": date, "value": huf / usd})
+        if huf is not None and gbp not in (None, 0):
+            gbphuf.append({"date": date, "value": huf / gbp})
+
+    return {"eurhuf": eurhuf, "usdhuf": usdhuf, "gbphuf": gbphuf}
+
 
 def ksh_earnings():
-    b=S.get('https://www.ksh.hu/stadat_files/mun/hu/mun0143.csv',timeout=90).content
-    rows=list(csv.reader(io.StringIO(b.decode('cp1250')),delimiter=';'))
-    out=[]; year=None
-    months={'január':1,'február':2,'március':3,'április':4,'május':5,'június':6,'július':7,'augusztus':8,'szeptember':9,'október':10,'november':11,'december':12}
-    for r in rows:
-        if len(r)<4: continue
-        m=re.search(r'(20\d{2})',r[0] or '')
-        if m: year=int(m.group(1))
-        month=months.get((r[1] or '').strip().lower())
-        try: value=float(r[2].replace('\xa0','').replace(' ', '').replace(',','.'))
-        except: continue
-        if year and month and 100000<=value<=2000000: out.append({'date':f'{year}-{month:02d}-01','value':value})
-    return out
+    response = S.get(
+        "https://www.ksh.hu/stadat_files/mun/hu/mun0143.csv",
+        timeout=90,
+    )
+    response.raise_for_status()
+    rows = list(csv.reader(io.StringIO(response.content.decode("cp1250")), delimiter=";"))
+
+    months = {
+        "január": 1, "február": 2, "március": 3, "április": 4,
+        "május": 5, "június": 6, "július": 7, "augusztus": 8,
+        "szeptember": 9, "október": 10, "november": 11, "december": 12,
+    }
+    result = {"gross": [], "median": [], "net": []}
+    year = None
+
+    def number(value):
+        return float(value.replace("\xa0", "").replace(" ", "").replace(",", "."))
+
+    for row in rows:
+        if len(row) < 8:
+            continue
+        match = re.search(r"(20\d{2})", row[0] or "")
+        if match:
+            year = int(match.group(1))
+        month = months.get((row[1] or "").strip().lower())
+        if not year or not month:
+            continue
+        try:
+            gross = number(row[2])
+            median = number(row[4])
+            net = number(row[6])
+        except (ValueError, TypeError, IndexError):
+            continue
+        if not 100000 <= gross <= 2000000:
+            continue
+        date = f"{year}-{month:02d}-01"
+        result["gross"].append({"date": date, "value": gross})
+        result["median"].append({"date": date, "value": median})
+        result["net"].append({"date": date, "value": net})
+
+    return result
+
 
 def mnb_rate():
     url='https://www.mnb.hu/en/Jegybanki_alapkamat_alakulasa'
@@ -148,10 +208,13 @@ def daily_steps(events):
     idx=pd.date_range(s.index.min(),pd.Timestamp.now().normalize(),freq='D')
     return [{'date':d.strftime('%Y-%m-%d'),'value':float(v)} for d,v in s.reindex(idx).ffill().items()]
 
+fx_data = ecb_fx()
+
 data={
  'updated_at':datetime.now(timezone.utc).isoformat(),
  'inflation':eurostat('prc_hicp_minr',{'geo':'HU','coicop18':'TOTAL','unit':'RCH_A'}),
- 'eurhuf':ecb_fx(),
+ 'eurhuf': fx_data['eurhuf'],
+ 'fx': fx_data,
  'brent': brent_oil(),
  'unemployment':eurostat('une_rt_m',{'geo':'HU','sex':'T','age':'TOTAL','unit':'PC_ACT','s_adj':'SA'}),
  'employment':eurostat('lfsi_emp_q',{'geo':'HU','indic_em':'EMP_LFS','sex':'T','age':'Y15-64','unit':'PC_POP','s_adj':'SA'}),
