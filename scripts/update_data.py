@@ -9,6 +9,19 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 OUT=Path(__file__).resolve().parents[1]/'data/dashboard.json'
+def load_previous_data():
+    if not OUT.exists():
+        return {}
+
+    try:
+        return json.loads(
+            OUT.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+PREVIOUS_DATA = load_previous_data()
 S = requests.Session()
 
 S.headers.update({
@@ -147,48 +160,229 @@ def ecb_fx():
 
 
 def ksh_earnings():
-    response = S.get(
+    urls = [
         "https://www.ksh.hu/stadat_files/mun/hu/mun0143.csv",
-        timeout=90,
+        "https://ksh.hu/stadat_files/mun/hu/mun0143.csv",
+    ]
+
+    content = None
+    last_error = None
+
+    for url in urls:
+        try:
+            print(f"KSH átlagkereset lekérése: {url}")
+
+            response = S.get(
+                url,
+                timeout=(15, 60),
+            )
+
+            response.raise_for_status()
+
+            if not response.content:
+                raise RuntimeError(
+                    "A KSH üres választ adott vissza."
+                )
+
+            content = response.content
+
+            print(
+                "KSH átlagkereset sikeresen letöltve: "
+                f"{len(content)} bájt"
+            )
+
+            break
+
+        except requests.RequestException as error:
+            last_error = error
+
+            print(
+                "A KSH-forrás nem volt elérhető: "
+                f"{url}; hiba: {error}"
+            )
+
+    if content is None:
+        previous_earnings = PREVIOUS_DATA.get(
+            "earnings",
+            {}
+        )
+
+        if (
+            isinstance(previous_earnings, dict)
+            and previous_earnings.get("gross")
+        ):
+            print(
+                "FIGYELMEZTETÉS: a KSH nem volt elérhető. "
+                "A korábbi átlagkereseti adatok maradnak érvényben."
+            )
+
+            return previous_earnings
+
+        raise RuntimeError(
+            "A KSH egyik címen sem volt elérhető, "
+            "és nincs korábbi átlagkereseti adat. "
+            f"Utolsó hiba: {last_error}"
+        )
+
+    try:
+        decoded_content = content.decode(
+            "cp1250"
+        )
+    except UnicodeDecodeError:
+        decoded_content = content.decode(
+            "utf-8-sig"
+        )
+
+    rows = list(
+        csv.reader(
+            io.StringIO(decoded_content),
+            delimiter=";",
+        )
     )
-    response.raise_for_status()
-    rows = list(csv.reader(io.StringIO(response.content.decode("cp1250")), delimiter=";"))
 
     months = {
-        "január": 1, "február": 2, "március": 3, "április": 4,
-        "május": 5, "június": 6, "július": 7, "augusztus": 8,
-        "szeptember": 9, "október": 10, "november": 11, "december": 12,
+        "január": 1,
+        "február": 2,
+        "március": 3,
+        "április": 4,
+        "május": 5,
+        "június": 6,
+        "július": 7,
+        "augusztus": 8,
+        "szeptember": 9,
+        "október": 10,
+        "november": 11,
+        "december": 12,
     }
-    result = {"gross": [], "median": [], "net": []}
+
+    result = {
+        "gross": [],
+        "median": [],
+        "net": [],
+    }
+
     year = None
 
     def number(value):
-        return float(value.replace("\xa0", "").replace(" ", "").replace(",", "."))
+        if value is None:
+            return None
+
+        cleaned = (
+            str(value)
+            .replace("\xa0", "")
+            .replace(" ", "")
+            .replace(",", ".")
+            .strip()
+        )
+
+        if cleaned == "":
+            return None
+
+        return float(cleaned)
 
     for row in rows:
         if len(row) < 8:
             continue
-        match = re.search(r"(20\d{2})", row[0] or "")
-        if match:
-            year = int(match.group(1))
-        month = months.get((row[1] or "").strip().lower())
+
+        year_match = re.search(
+            r"(20\d{2})",
+            row[0] or "",
+        )
+
+        if year_match:
+            year = int(
+                year_match.group(1)
+            )
+
+        month_name = (
+            row[1] or ""
+        ).strip().lower()
+
+        month = months.get(
+            month_name
+        )
+
         if not year or not month:
             continue
+
         try:
             gross = number(row[2])
             median = number(row[4])
             net = number(row[6])
-        except (ValueError, TypeError, IndexError):
+
+        except (
+            ValueError,
+            TypeError,
+            IndexError,
+        ):
             continue
+
+        if (
+            gross is None
+            or median is None
+            or net is None
+        ):
+            continue
+
         if not 100000 <= gross <= 2000000:
             continue
-        date = f"{year}-{month:02d}-01"
-        result["gross"].append({"date": date, "value": gross})
-        result["median"].append({"date": date, "value": median})
-        result["net"].append({"date": date, "value": net})
+
+        date = (
+            f"{year}-"
+            f"{month:02d}-01"
+        )
+
+        result["gross"].append(
+            {
+                "date": date,
+                "value": gross,
+            }
+        )
+
+        result["median"].append(
+            {
+                "date": date,
+                "value": median,
+            }
+        )
+
+        result["net"].append(
+            {
+                "date": date,
+                "value": net,
+            }
+        )
+
+    if not result["gross"]:
+        previous_earnings = PREVIOUS_DATA.get(
+            "earnings",
+            {}
+        )
+
+        if (
+            isinstance(previous_earnings, dict)
+            and previous_earnings.get("gross")
+        ):
+            print(
+                "FIGYELMEZTETÉS: a KSH-fájl letöltődött, "
+                "de nem volt feldolgozható. "
+                "A korábbi átlagkereseti adatok maradnak érvényben."
+            )
+
+            return previous_earnings
+
+        raise RuntimeError(
+            "A KSH-fájl letöltődött, "
+            "de nem tartalmazott feldolgozható "
+            "havi kereseti adatokat."
+        )
+
+    print(
+        "KSH átlagkereseti sorok száma: "
+        f"{len(result['gross'])}"
+    )
 
     return result
-
 
 def mnb_rate():
     url='https://www.mnb.hu/en/Jegybanki_alapkamat_alakulasa'
