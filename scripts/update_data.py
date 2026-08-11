@@ -395,7 +395,7 @@ def ksh_earnings():
             }
         )
 
-        if not result["gross"]:
+               if not result["gross"]:
         previous_earnings = PREVIOUS_DATA.get(
             "earnings"
         )
