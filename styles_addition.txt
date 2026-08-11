@@ -1,0 +1,3 @@
+
+.chart-large{height:520px}
+@media(max-width:800px){.chart-large{height:390px}}
