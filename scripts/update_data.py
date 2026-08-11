@@ -172,10 +172,22 @@ def ksh_earnings():
         try:
             print(f"KSH átlagkereset lekérése: {url}")
 
-            response = S.get(
-                url,
-                timeout=(15, 60),
-            )
+            response = requests.get(
+    url,
+    headers={
+        "User-Agent": (
+            "Mozilla/5.0 "
+            "(Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 "
+            "Chrome/127.0 Safari/537.36"
+        ),
+        "Accept": (
+            "text/csv,text/plain,"
+            "application/octet-stream,*/*"
+        ),
+    },
+    timeout=(10, 30),
+)
 
             response.raise_for_status()
 
@@ -201,33 +213,63 @@ def ksh_earnings():
                 f"{url}; hiba: {error}"
             )
 
-    if content is None:
+        if content is None:
         previous_earnings = PREVIOUS_DATA.get(
-            "earnings",
-            {}
+            "earnings"
         )
 
-        if (
-            isinstance(previous_earnings, dict)
-            and previous_earnings.get("gross")
-        ):
+        # Az új JSON-szerkezet már gross, median és net
+        # adatsorokat tartalmaz.
+        if isinstance(previous_earnings, dict):
+            gross = previous_earnings.get("gross", [])
+            median = previous_earnings.get("median", [])
+            net = previous_earnings.get("net", [])
+
+            if gross or median or net:
+                print(
+                    "FIGYELMEZTETÉS: a KSH nem volt elérhető. "
+                    "A korábbi átlagkereseti adatok maradnak érvényben."
+                )
+
+                return {
+                    "gross": gross,
+                    "median": median,
+                    "net": net,
+                }
+
+        # A korábbi dashboard-verzióban az earnings még
+        # egyszerű lista lehetett, amely a bruttó keresetet
+        # tartalmazta.
+        if isinstance(previous_earnings, list):
             print(
                 "FIGYELMEZTETÉS: a KSH nem volt elérhető. "
-                "A korábbi átlagkereseti adatok maradnak érvényben."
+                "A régi bruttó átlagkereseti idősor kerül megtartásra."
             )
 
-            return previous_earnings
+            return {
+                "gross": previous_earnings,
+                "median": [],
+                "net": [],
+            }
 
-        raise RuntimeError(
-            "A KSH egyik címen sem volt elérhető, "
-            "és nincs korábbi átlagkereseti adat. "
+        # Első futáskor vagy korábbi kereseti adatok hiányában
+        # nem állítjuk le az egész dashboard frissítését.
+        print(
+            "FIGYELMEZTETÉS: a KSH nem volt elérhető, "
+            "és nincs korábbi kereseti adat. "
+            "A kereseti adatsorok átmenetileg üresek maradnak. "
             f"Utolsó hiba: {last_error}"
         )
 
+        return {
+            "gross": [],
+            "median": [],
+            "net": [],
+        }
+
     try:
-        decoded_content = content.decode(
-            "cp1250"
-        )
+        decoded_content = content.decode("cp1250")
+        
     except UnicodeDecodeError:
         decoded_content = content.decode(
             "utf-8-sig"
@@ -353,29 +395,53 @@ def ksh_earnings():
             }
         )
 
-    if not result["gross"]:
+        if not result["gross"]:
         previous_earnings = PREVIOUS_DATA.get(
-            "earnings",
-            {}
+            "earnings"
         )
 
-        if (
-            isinstance(previous_earnings, dict)
-            and previous_earnings.get("gross")
-        ):
+        if isinstance(previous_earnings, dict):
+            gross = previous_earnings.get("gross", [])
+            median = previous_earnings.get("median", [])
+            net = previous_earnings.get("net", [])
+
+            if gross or median or net:
+                print(
+                    "FIGYELMEZTETÉS: a KSH-fájl letöltődött, "
+                    "de nem volt feldolgozható. "
+                    "A korábbi kereseti adatok maradnak érvényben."
+                )
+
+                return {
+                    "gross": gross,
+                    "median": median,
+                    "net": net,
+                }
+
+        if isinstance(previous_earnings, list):
             print(
-                "FIGYELMEZTETÉS: a KSH-fájl letöltődött, "
-                "de nem volt feldolgozható. "
-                "A korábbi átlagkereseti adatok maradnak érvényben."
+                "FIGYELMEZTETÉS: a KSH-fájl nem volt "
+                "feldolgozható. A korábbi bruttó idősor "
+                "kerül megtartásra."
             )
 
-            return previous_earnings
+            return {
+                "gross": previous_earnings,
+                "median": [],
+                "net": [],
+            }
 
-        raise RuntimeError(
-            "A KSH-fájl letöltődött, "
-            "de nem tartalmazott feldolgozható "
-            "havi kereseti adatokat."
+        print(
+            "FIGYELMEZTETÉS: a KSH-fájl nem tartalmazott "
+            "feldolgozható havi kereseti adatokat. "
+            "A kereseti sorozatok üresek maradnak."
         )
+
+        return {
+            "gross": [],
+            "median": [],
+            "net": [],
+        }
 
     print(
         "KSH átlagkereseti sorok száma: "
@@ -383,7 +449,7 @@ def ksh_earnings():
     )
 
     return result
-
+    
 def mnb_rate():
     url='https://www.mnb.hu/en/Jegybanki_alapkamat_alakulasa'
     tables=pd.read_html(S.get(url,timeout=90).text)
