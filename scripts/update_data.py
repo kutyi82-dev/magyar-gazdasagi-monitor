@@ -5,8 +5,40 @@ from pathlib import Path
 import pandas as pd
 import requests
 
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 OUT=Path(__file__).resolve().parents[1]/'data/dashboard.json'
-S=requests.Session(); S.headers['User-Agent']='magyar-gazdasagi-monitor/1.0'
+S = requests.Session()
+
+S.headers.update({
+    "User-Agent": "Mozilla/5.0 magyar-gazdasagi-monitor/1.0",
+    "Accept": "*/*"
+})
+
+RetryStrategia = Retry(
+    total=5,
+    connect=5,
+    read=5,
+    backoff_factor=5,
+    status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=["GET"]
+)
+
+HTTPAdapterRetry =
+    HTTPAdapter(
+        max_retries=RetryStrategia
+    )
+
+S.mount(
+    "https://",
+    HTTPAdapterRetry
+)
+
+S.mount(
+    "http://",
+    HTTPAdapterRetry
+)
 
 def eurostat(dataset, filters):
     url=f'https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/{dataset}'
@@ -24,12 +56,52 @@ def period_date(t):
     return t+'-01' if len(t)==7 else t
 
 def fred(series):
-    text=S.get('https://fred.stlouisfed.org/graph/fredgraph.csv',params={'id':series},timeout=90).text
-    rows=[]
-    for r in csv.DictReader(io.StringIO(text)):
-        try: rows.append({'date':r['observation_date'],'value':float(r[series])})
-        except: pass
-    return rows
+    url = "https://fred.stlouisfed.org/graph/fredgraph.csv"
+
+    response = S.get(
+        url,
+        params={
+            "id": series,
+            "cosd": "2000-01-01"
+        },
+        timeout=(20, 180)
+    )
+
+    response.raise_for_status()
+
+    rows = []
+
+    for row in csv.DictReader(
+        io.StringIO(response.text)
+    ):
+        try:
+            datum = row["observation_date"]
+            ertek_szoveg = row.get(series)
+
+            if (
+                ertek_szoveg is None
+                or ertek_szoveg.strip() == ""
+                or ertek_szoveg.strip() == "."
+            ):
+                continue
+
+            rows.append({
+                "date": datum,
+                "value": float(ertek_szoveg)
+            })
+
+        except (ValueError, KeyError, TypeError):
+            continue
+
+    if not rows:
+        raise RuntimeError(
+            f"A FRED nem adott vissza feldolgozható adatot: {series}"
+        )
+
+    return sorted(
+        rows,
+        key=lambda x: x["date"]
+    )
 
 def ecb_fx():
     url='https://data-api.ecb.europa.eu/service/data/EXR/D.HUF.EUR.SP00.A'
