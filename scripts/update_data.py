@@ -25,8 +25,7 @@ RetryStrategia = Retry(
     allowed_methods=["GET"]
 )
 
-HTTPAdapterRetry =
-    HTTPAdapter(
+HTTPAdapterRetry =  HTTPAdapter(
         max_retries=RetryStrategia
     )
 
