@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Magyar gazdasági mutatók nyilvános adatokból.">
+  <title>Magyar Gazdasági Monitor</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/echarts@6/dist/echarts.min.js"></script>
+</head>
+<body>
+<header><div><p class="eyebrow">NYILVÁNOS ADATOK</p><h1>Magyar Gazdasági Monitor</h1><p class="subtitle">Infláció, árfolyam, munkaerőpiac, GDP és egyensúlyi mutatók egy helyen.</p></div><div id="updated" class="updated">Frissítés...</div></header>
+<main>
+  <section id="kpis" class="kpis"></section>
+  <section class="grid">
+    <article class="panel wide"><h2>Árak és monetáris környezet</h2><div id="chart-prices" class="chart"></div></article>
+    <article class="panel"><h2>Munkaerőpiac</h2><div id="chart-labour" class="chart"></div></article>
+    <article class="panel"><h2>GDP-növekedés</h2><div id="chart-gdp" class="chart"></div></article>
+    <article class="panel"><h2>Államadósság / GDP</h2><div id="chart-debt" class="chart"></div></article>
+    <article class="panel"><h2>Folyó fizetési mérleg</h2><div id="chart-current" class="chart"></div></article>
+  </section>
+  <section class="sources"><h2>Adatforrások</h2><p>Eurostat, KSH, MNB, ECB és FRED. Az adatok GitHub Actions segítségével automatikusan frissülnek.</p></section>
+</main>
+<footer>Nyilvános, tájékoztató jellegű adatok. Nem minősül pénzügyi tanácsadásnak.</footer>
+<script src="app.js"></script>
+</body></html>
