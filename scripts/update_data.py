@@ -54,16 +54,15 @@ def period_date(t):
         y,q=t.split('-Q'); return f'{y}-{int(q)*3:02d}-01'
     return t+'-01' if len(t)==7 else t
 
-def fred(series):
-    url = "https://fred.stlouisfed.org/graph/fredgraph.csv"
+def brent_oil():
+    url = (
+        "https://raw.githubusercontent.com/"
+        "datasets/oil-prices/main/data/brent-daily.csv"
+    )
 
     response = S.get(
         url,
-        params={
-            "id": series,
-            "cosd": "2000-01-01"
-        },
-        timeout=(20, 180)
+        timeout=(20, 60)
     )
 
     response.raise_for_status()
@@ -74,19 +73,23 @@ def fred(series):
         io.StringIO(response.text)
     ):
         try:
-            datum = row["observation_date"]
-            ertek_szoveg = row.get(series)
+            datum = row["Date"]
+            ar_szoveg = row["Price"]
 
             if (
-                ertek_szoveg is None
-                or ertek_szoveg.strip() == ""
-                or ertek_szoveg.strip() == "."
+                not datum
+                or not ar_szoveg
+                or ar_szoveg.strip() == "."
             ):
+                continue
+
+            # A dashboardon 2000-től jelenítjük meg az adatokat.
+            if datum < "2000-01-01":
                 continue
 
             rows.append({
                 "date": datum,
-                "value": float(ertek_szoveg)
+                "value": float(ar_szoveg)
             })
 
         except (ValueError, KeyError, TypeError):
@@ -94,13 +97,14 @@ def fred(series):
 
     if not rows:
         raise RuntimeError(
-            f"A FRED nem adott vissza feldolgozható adatot: {series}"
+            "A Brent CSV nem tartalmaz feldolgozható adatot."
         )
 
     return sorted(
         rows,
         key=lambda x: x["date"]
     )
+
 
 def ecb_fx():
     url='https://data-api.ecb.europa.eu/service/data/EXR/D.HUF.EUR.SP00.A'
@@ -148,7 +152,7 @@ data={
  'updated_at':datetime.now(timezone.utc).isoformat(),
  'inflation':eurostat('prc_hicp_minr',{'geo':'HU','coicop18':'TOTAL','unit':'RCH_A'}),
  'eurhuf':ecb_fx(),
- 'brent':fred('DCOILBRENTEU'),
+ 'brent': brent_oil(),
  'unemployment':eurostat('une_rt_m',{'geo':'HU','sex':'T','age':'TOTAL','unit':'PC_ACT','s_adj':'SA'}),
  'employment':eurostat('lfsi_emp_q',{'geo':'HU','indic_em':'EMP_LFS','sex':'T','age':'Y15-64','unit':'PC_POP','s_adj':'SA'}),
  'gdp':eurostat('namq_10_gdp',{'geo':'HU','na_item':'B1GQ','unit':'CLV_PCH_SM','s_adj':'NSA'}),
